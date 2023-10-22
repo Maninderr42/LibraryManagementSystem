@@ -31,5 +31,8 @@ public class Student{
 
     private String Address;
 
+    @OneToOne(mappedBy = "student" ,cascade = CascadeType.ALL)
+    private LibraryCard libraryCard;
+
 
 }

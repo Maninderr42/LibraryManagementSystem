@@ -12,7 +12,7 @@ import lombok.Setter;
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
-public class CardStatus {
+public class LibraryCard {
      @Id
      @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer CardNo;
@@ -20,7 +20,9 @@ public class CardStatus {
      @Enumerated(value = EnumType.STRING)
      private Card cardEnum;
 
-     private Card card;
+     private String nameOnCard;
+
+     private Integer noOfBooksIssued;
 
     @OneToOne
     @JoinColumn
