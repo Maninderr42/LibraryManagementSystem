@@ -5,14 +5,16 @@ import com.example.LibraryManagementSystem.Entity.LibraryCard;
 import com.example.LibraryManagementSystem.Entity.Transaction;
 import com.example.LibraryManagementSystem.Enum.Card;
 import com.example.LibraryManagementSystem.Enum.TransactionStatus;
-import com.example.LibraryManagementSystem.Exception.*;
+import com.example.LibraryManagementSystem.Exception.BookNotAvailableException;
+import com.example.LibraryManagementSystem.Exception.CardStatusNotActiveException;
+import com.example.LibraryManagementSystem.Exception.LibraryCardException;
+import com.example.LibraryManagementSystem.Exception.MaxBooksAlreadyIssuedException;
 import com.example.LibraryManagementSystem.Repository.BookRespository;
 import com.example.LibraryManagementSystem.Repository.CardRepository;
 import com.example.LibraryManagementSystem.Repository.TransactionRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import javax.xml.crypto.Data;
 import java.util.Date;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -21,111 +23,127 @@ import java.util.concurrent.TimeUnit;
 public class TransactionService {
 
     @Autowired
-    private TransactionRepository repository;
-
-    @Autowired
-    private BookRespository bookRespository;
+    private BookRespository bookRepository;
 
     @Autowired
     private CardRepository cardRepository;
+
+    @Autowired
+    private TransactionRepository transactionRepository;
 
     private static final Integer MAX_LIMIT_OF_BOOKS = 3;
 
     private static final Integer FINE_PER_DAY = 5;
 
 
+    public String issueBook(Integer bookId,Integer cardId) throws Exception{
 
-    public String issueBook(Integer bookId, Integer cardId) throws Exception{
-
-        Transaction transaction=new Transaction();
-
+        Transaction transaction = new Transaction();
         transaction.setTransactionStatus(TransactionStatus.PENDING);
 
-        Optional<Book> bookOptional=bookRespository.findById(bookId);
+        //Validations
 
-        if(!bookOptional.isPresent()){
-            throw  new BookNotFoundExcetion("Book Not Found Exception");
+        //Valid BookId
+        Optional<Book> bookOptional = bookRepository.findById(bookId);
+
+        if(!bookOptional.isPresent()) {
+            throw new BookNotAvailableException("BookId entered is invalid");
         }
-
-        Book book=bookOptional.get();
+        Book book = bookOptional.get();
+        //Availability of book
 
         if(!book.isAvailable()){
-            throw new BookNotAvailableException(("Book Is UnAvailable"));
+            throw new BookNotAvailableException("Book is Unavailable");
+        }
+
+        //Valid CardId
+        Optional<LibraryCard> optionalLibraryCard = cardRepository.findById(cardId);
+        if(!optionalLibraryCard.isPresent()){
+            throw new LibraryCardException("CardId entered is Invalid");
         }
 
 
-        Optional<LibraryCard> optionalCard=cardRepository.findById(cardId);
+        LibraryCard libraryCard = optionalLibraryCard.get();
 
-        if(!optionalCard.isPresent()){
-            throw new LibraryCardException("Library card not Found Exception");
-        }
-
-
-        LibraryCard libraryCard=optionalCard.get();
-
+        //Valid Card Status
         if(!libraryCard.getCardEnum().equals(Card.ACTIVE)){
-            throw new CardStatusNotActiveException("Card Status Is Not Active");
+            throw new CardStatusNotActiveException("Card Status is Not Active");
         }
 
+        // Maximum no of book Issues : MAX_LIMIT = 3
         if(libraryCard.getNoOfBooksIssued()==MAX_LIMIT_OF_BOOKS){
-            throw new MaxBooksAlreadyIssuedException(MAX_LIMIT_OF_BOOKS+"Max Book Already Issued");
+            throw new MaxBooksAlreadyIssuedException(MAX_LIMIT_OF_BOOKS+" is maximum books that can be issued");
         }
+
+
+        //Creating the Transaction Entity :
         transaction.setTransactionStatus(TransactionStatus.ISSUED);
+
 
         libraryCard.setNoOfBooksIssued(libraryCard.getNoOfBooksIssued()+1);
 
-        book.setAvailable(false);
+        book.setAvailable(false); //Book is no longer available
 
+        //Setting FK
         transaction.setBook(book);
-
         transaction.setCard(libraryCard);
 
-        book.getTransactionList().add(transaction);
 
+        //Saving relevant Entities : Bidirectional Mapping
+        book.getTransactionList().add(transaction);
         libraryCard.getTransactionList().add(transaction);
 
-        repository.save(transaction);
 
-        return "Book Issued Successfully";
+        //Instead of saving the parent : just save the child
+        transactionRepository.save(transaction);
 
+        return "The book with bookId "+bookId+" has been issued " +
+                "to card with "+cardId;
     }
 
-    public String returnBook(Integer bookId, Integer cardId){
-        Book book=bookRespository.findById(bookId).get();
 
-        LibraryCard card=cardRepository.findById(cardId).get();
+    public String returnBook(Integer bookId,Integer cardId){
 
-        Transaction transaction=repository.findTransactionByBookAndCardAndTranactionStatus(book,card,TransactionStatus.ISSUED);
-        Date issueDate=transaction.getCreatedOn();
+        Book book = bookRepository.findById(bookId).get();
+        LibraryCard card = cardRepository.findById(cardId).get();
 
-        long milliSeconds=Math.abs(System.currentTimeMillis()-issueDate.getTime());
-        Long days= TimeUnit.DAYS.convert(milliSeconds,TimeUnit.MICROSECONDS);
+        //I need to find out that issue Transaction
 
-        int fineAmount=0;
+        Transaction transaction = transactionRepository.findTransactionByBookAndCardAndTransactionStatus(book,card,TransactionStatus.ISSUED);
+
+        Date issueDate = transaction.getCreatedOn();
+
+        //Predefined method that you can use to calculate days
+        long milliSeconds = Math.abs(System.currentTimeMillis()-issueDate.getTime());
+        Long days = TimeUnit.DAYS.convert(milliSeconds,TimeUnit.MILLISECONDS);
+
+        int fineAmount = 0;
 
         if(days>15){
-            fineAmount=Math.toIntExact((days-15)*FINE_PER_DAY);
+            fineAmount = Math.toIntExact((days - 15) * FINE_PER_DAY);
         }
 
-        Transaction newTranaction=new Transaction();
+        Transaction newTransaction = new Transaction();
 
-        newTranaction.setTransactionStatus(TransactionStatus.COMPLETED);
-        newTranaction.setReturnDate(new Date());
-        newTranaction.setFine(fineAmount);
+        newTransaction.setTransactionStatus(TransactionStatus.COMPLETED);
+        newTransaction.setReturnDate(new Date());
+        newTransaction.setFine(fineAmount);
 
-        newTranaction.setBook(book);
-        newTranaction.setCard(card);
+        //Setting the FK's
+        newTransaction.setBook(book);
+        newTransaction.setCard(card);
 
         book.setAvailable(true);
         card.setNoOfBooksIssued(card.getNoOfBooksIssued()-1);
 
-        book.getTransactionList().add(newTranaction);
-        card.getTransactionList().add(newTranaction);
+        book.getTransactionList().add(newTransaction);
+        card.getTransactionList().add(newTransaction);
 
-        repository.save(newTranaction);
+        transactionRepository.save(newTransaction);
 
-        return "Book has been returned...........";
-
+        return "book has been returned";
 
     }
+
+
 }
